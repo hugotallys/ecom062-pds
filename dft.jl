@@ -111,23 +111,6 @@ end
 # ╔═╡ 4f368f95-acca-43e6-aeed-363366a68e65
 md"Em seguida, calculamos a DFT para o sinal amostrado e comparamos com a implemtação disponível na biblioteca FFTW para validar o resultado:"
 
-# ╔═╡ ad34d021-99f1-41c5-9bba-21986944b364
-begin
-	function dft_amp(X, foo)
-		Y = foo(X)
-		return 2*abs.(Y/L)
-	end
-	Y₁ = dft_amp(X, fft)
-	Y₂ = dft_amp(X, dft)
-	
-	f = Fs*(0:L-1)/L;
-	plot(f, Y₁, label="FFTW")
-	plot!(f, Y₂, label="dft")
-	title!("Amplitude da DFT - X[k]")
-	xlabel!("f (Hz)")
-	ylabel!("|X[k]|")
-end
-
 # ╔═╡ 58f41eb0-4cf3-4422-91d7-a915790baf28
 md"
 Para recuperar o vetor do sinal discretizado, utilizamos a transformada inversa de fourier discreta, dada por:
@@ -233,14 +216,15 @@ md"Para vetores X de tamanho crescente também podemos visualizar as curvas de d
 
 # ╔═╡ 6c9fb943-04f7-43b9-bbff-03e1c680b697
 begin
-	function pad_zeros(x)
+	sizes = 1:10:100
+	function pad_zeros(x, b=2)
 		N = length(x)
-		pad = 2^Int(ceil(log(2, N)))
+		pad = b^Int(ceil(log(b, N)))
 		return vcat(x,zeros(pad - N))
 	end
-	function elapsed_time(size, foo, pad=false)
-		if pad
-			x = pad_zeros(rand(size))
+	function elapsed_time(size, foo, pad=nothing)
+		if pad != nothing
+			x = pad_zeros(rand(size), pad)
 		else
 			x = rand(size)
 		end
@@ -248,11 +232,34 @@ begin
 			foo(x)
 		end
 	end
-	times_fft = [elapsed_time(Int(s), fft) for s in 1:10:200]
-	times_dft = [elapsed_time(Int(s), dft) for s in 1:10:200]
-	plot(times_dft, label="DFT - O(n*n)")
-	plot!(times_fft, label="FFT - O(n*log n)")
+	times_fft = [elapsed_time(Int(s), fft) for s in sizes]
+	times_dft = [elapsed_time(Int(s), dft) for s in sizes]
+	plot(sizes, times_dft, label="DFT - O(n*n)")
+	plot!(sizes, times_fft, label="FFT - O(n*log2 n)")
 end
+
+# ╔═╡ 18e42268-d03e-420a-aff6-2fcbcfe4759e
+function plot_magnitude(X, foo, foo_label, base=nothing)
+	
+	if base != nothing
+		X = pad_zeros(X, base)
+	end
+
+	L = length(X)
+	
+	Y₁ = dft_amp(X, fft)
+	Y₂ = dft_amp(X, foo)
+	
+	f = Fs*(0:L-1)/L;
+	plot(f, Y₁, label="FFTW")
+	plot!(f, Y₂, label=foo_label)
+	title!("Espectro Frequencial")
+	xlabel!("f (Hz)")
+	ylabel!("|X[k]|")
+end
+
+# ╔═╡ eea859de-8c2a-4b39-b12b-01e5fe38309a
+plot_magnitude(X, dft, "DFT")
 
 # ╔═╡ 2f24447f-398e-43ae-a69e-e33e239b1a00
 md"
@@ -292,32 +299,74 @@ function dit2fft(x)
 	return X
 end
 
+# ╔═╡ 4006f29e-c9aa-4d0a-bbd5-ef7a1e13711f
+md"
+De maneira similar, podemos mostrar que para a transformada rápida de fourier (Radix 3 FFT) podemos escrever a DFT da seguinte maneira:
+
+```math
+X[k] = A_k + \omega_N^k B_k + \omega_N^{2k} C_k
+```
+
+```math
+X[k + \frac{N}{3}] =  A_k + e^{-j\frac{2\pi}{3}} \omega_N^k B_k + e^{-j\frac{4\pi}{3}} \omega_N^{2k} C_k
+```
+
+```math
+X[k + \frac{2N}{3}] = A_k + e^{-j\frac{4\pi}{3}} \omega_N^k B_k + e^{-j\frac{2\pi}{3}} \omega_N^{2k} C_k
+```
+
+Onde $A_k$, $B_k$ e $C_k$ são DFTs de tamanho $N/3$.
+"
+
+# ╔═╡ bcabac6a-7cb6-459c-985a-bc9084d91f4c
+begin
+	ω(n, N) = ℯ^(-𝑗*(2π/N)*n)
+	function dit3fft(x)
+		N = length(x)
+	
+		if N == 1
+			return x
+		else
+			index = Int.(1:3:N)
+			X = Array{ComplexF64}(undef, N)
+			X[1:N÷3] = dit3fft(x[index])
+			X[N÷3+1:2*(N÷3)] = dit3fft(x[index .+ 1])
+			X[2*(N÷3)+1:N] = dit3fft(x[index .+ 2])
+		end
+	
+		for k ∈ 0:(N÷3)-1
+			A = X[k+1]
+			B = ω(k, N) * X[k+1 + (N÷3)]
+			C = ω(2k, N) * X[k+1 + 2*(N÷3)]
+			X[k+1] = A + B + C
+			X[k+1 + (N÷3)] = A + ω(1, 3) * B + ω(2, 3) * C
+			X[k+1 + 2*(N÷3)] = A + ω(2, 3) * B + ω(1, 3) * C
+		end
+	
+		return X
+	end
+end
+
 # ╔═╡ da6e3b58-727f-4afd-82a3-a80596221a09
 md"Validando mais uma vez a implementação:"
 
-# ╔═╡ 11c85bca-3a2b-457f-885a-a860e73bc59d
-begin
-	X_pad = pad_zeros(X)
-	Y₁_pad = dft_amp(X_pad, fft)
-	Y₂_pad = dft_amp(X_pad, dit2fft)
-	
-	f_pad = Fs*(0:length(X_pad)-1)/L;
-	plot(f_pad, Y₁_pad, label="FFTW")
-	plot!(f_pad, Y₂_pad, label="Radix-2 FFT")
-	title!("Amplitude da FFT - X[k]")
-	xlabel!("f (Hz)")
-	ylabel!("|X[k]|")
-end
+# ╔═╡ 0686643c-e5c3-4cfd-a0a5-796697634217
+plot_magnitude(X, dit2fft, "Radix 2 - FFT", 2)
+
+# ╔═╡ 5ab9ce40-055f-4d77-aea2-2acc66c7bf21
+plot_magnitude(X, dit3fft, "Radix 3 - FFT", 3)
 
 # ╔═╡ 00062d0c-b996-4b3e-a52e-86afa7c0e51e
 md"Comparando as curvas de desempenho:"
 
 # ╔═╡ 9ab655f9-602a-45ac-ae3c-e56534a6e5f6
 begin
-	times_dit2fft = [elapsed_time(Int(s), dit2fft, true) for s in 1:10:200]
-	plot(times_dft, label="DFT - O(n*n)")
-	plot!(times_fft, label="FFT - O(n*log n)")
-	plot!(times_dit2fft, label="Radix-2 FFT - O(n*log n)")
+	times_dit2fft = [elapsed_time(Int(s), dit2fft, 2) for s in 1:10:100]
+	times_dit3fft = [elapsed_time(Int(s), dit3fft, 3) for s in 1:10:100]
+	plot(sizes, times_dft, label="DFT - O(n*n)")
+	plot!(sizes, times_fft, label="FFT - O(n*log2 n)")
+	plot!(sizes, times_dit2fft, label="Radix-2 FFT - O(n*log2 n)")
+	plot!(sizes, times_dit3fft, label="Radix-3 FFT - O(n*log3 n)")
 end
 
 # ╔═╡ d19dea2c-2235-4278-b043-283eeec6e86c
@@ -381,13 +430,17 @@ end
 md"
 ### Referências
 Kutz, J. N., Brunton, S. L. (2019). Data-Driven Science and Engineering: Machine Learning, Dynamical Systems, and Control. Singapore: Cambridge University Press.
+
+Rao, K., Kim, D., & Hwang, J. (2011). Fast Fourier Transform - Algorithms and Applications. Springer Netherlands.
 "
 
 # ╔═╡ 6d481e26-c7fe-46cc-b4f7-9703d40dd3e0
 md"
-### Links úteis
+### Links
+* [Fast Fourier transform](https://en.wikipedia.org/wiki/Fast_Fourier_transform)
+* [Cooley–Tukey FFT algorithm](https://en.wikipedia.org/wiki/Cooley%E2%80%93Tukey_FFT_algorithm)
+* [Exemplo FFT - MATLAB](https://www.mathworks.com/help/matlab/ref/fft.html)
 * [FFTW](https://www.fftw.org/)
-* [Implementação Matlab fft](https://www.mathworks.com/help/matlab/ref/fft.html)
 "
 
 # ╔═╡ Cell order:
@@ -405,7 +458,8 @@ md"
 # ╟─93d8e4ff-36b2-4b50-ba74-c7e2b2c5f8c9
 # ╠═4723b752-a967-4537-9dd0-29af9ca5d879
 # ╟─4f368f95-acca-43e6-aeed-363366a68e65
-# ╠═ad34d021-99f1-41c5-9bba-21986944b364
+# ╠═18e42268-d03e-420a-aff6-2fcbcfe4759e
+# ╠═eea859de-8c2a-4b39-b12b-01e5fe38309a
 # ╟─58f41eb0-4cf3-4422-91d7-a915790baf28
 # ╠═11eb6a9e-b299-433a-8eb5-4d761c1293b1
 # ╟─889aba5e-fb3d-428f-ac12-d971f064fdc9
@@ -424,8 +478,11 @@ md"
 # ╠═6c9fb943-04f7-43b9-bbff-03e1c680b697
 # ╟─2f24447f-398e-43ae-a69e-e33e239b1a00
 # ╠═0175269c-25e9-43d3-8cfe-e4cae367e2a7
+# ╟─4006f29e-c9aa-4d0a-bbd5-ef7a1e13711f
+# ╠═bcabac6a-7cb6-459c-985a-bc9084d91f4c
 # ╟─da6e3b58-727f-4afd-82a3-a80596221a09
-# ╠═11c85bca-3a2b-457f-885a-a860e73bc59d
+# ╠═0686643c-e5c3-4cfd-a0a5-796697634217
+# ╠═5ab9ce40-055f-4d77-aea2-2acc66c7bf21
 # ╟─00062d0c-b996-4b3e-a52e-86afa7c0e51e
 # ╠═9ab655f9-602a-45ac-ae3c-e56534a6e5f6
 # ╟─d19dea2c-2235-4278-b043-283eeec6e86c
