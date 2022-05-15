@@ -46,12 +46,12 @@ begin
 	𝑗 = im # 😄
 	Fs=1000 # Frequência de amostragem                    
 	T=1/Fs # Período de amostragem       
-	L=500 # Tamanno do sinal
+	L=1500 # Tamanno do sinal
 	t=0:T:(L-1)*T # Vetor de tempo
-	A = 0. # Amplitude do ruído
+	A = 2 # Amplitude do ruído
 	
 	S = 0.7*sin.(2π*50*t) + sin.(2π*120*t)
-	X = S + A*rand(Normal(), size(S)); # Desconsiderar ruído, por enquanto
+	X = S + A*rand(Normal(), size(S))
 end;
 
 # ╔═╡ a4560c78-2163-4e11-9a40-4b3779a5682c
@@ -111,7 +111,7 @@ end
 # ╔═╡ 4f368f95-acca-43e6-aeed-363366a68e65
 md"Em seguida, calculamos a DFT para o sinal amostrado e comparamos com a implemtação disponível na biblioteca FFTW para validar o resultado:"
 
-# ╔═╡ eeee3f09-1c1b-4a85-9dce-1bcd6f3f9814
+# ╔═╡ ad34d021-99f1-41c5-9bba-21986944b364
 begin
 	function dft_amp(X, foo)
 		Y = foo(X)
@@ -119,10 +119,7 @@ begin
 	end
 	Y₁ = dft_amp(X, fft)
 	Y₂ = dft_amp(X, dft)
-end;
-
-# ╔═╡ ad34d021-99f1-41c5-9bba-21986944b364
-begin
+	
 	f = Fs*(0:L-1)/L;
 	plot(f, Y₁, label="FFTW")
 	plot!(f, Y₂, label="dft")
@@ -176,14 +173,15 @@ Se desejamos filtrar, digamos apenas a senoide de 50Hz podemos excluir com uma m
 
 # ╔═╡ 8ae358e7-dd5a-42ec-91fb-653261cb95ab
 begin
-	index = findfirst(
+	ϵ = 0.001
+	index = findall(
 		function compare(value)
-			eps = 0.001
-			0.7 - eps <= value <= 0.7 + eps
+			value >= 0.5 - ϵ
 		end, Y₂
 	)
-	Y₂[index+1:L-index] .= 0.
-	plot(f, Y₂, label="DFT Filtrada")
+	mask = zeros(L)
+	mask[index] .= 1.
+	plot(f, Y₂ .* mask, label="DFT Filtrada")
 	title!("Amplitude da DFT Filtrada - X[k]")
 	xlabel!("f (Hz)")
 	ylabel!("|X[k]|")
@@ -196,10 +194,10 @@ Recuperando o sinal filtrado:
 
 # ╔═╡ e1b06737-47b9-4caf-b1e3-1d79054bccbb
 begin
-	Y_f = dft(X)
-	Y_f[index+1:L-index] .= 0.	
+	Y_f = mask .* dft(X)
 	plot(t, real.(idft(Y_f)), label="Sinal Filtrado")
 	plot!(t, X, label="Sinal Original")
+	plot!(t, S, label="Sinal Original - Sem Ruído")
 	title!("Filtragem do Sinal")
 	xlabel!("k")
 end
@@ -235,15 +233,91 @@ md"Para vetores X de tamanho crescente também podemos visualizar as curvas de d
 
 # ╔═╡ 6c9fb943-04f7-43b9-bbff-03e1c680b697
 begin
-	function elapsed_time(size, foo)
+	function pad_zeros(x)
+		N = length(x)
+		pad = 2^Int(ceil(log(2, N)))
+		return vcat(x,zeros(pad - N))
+	end
+	function elapsed_time(size, foo, pad=false)
+		if pad
+			x = pad_zeros(rand(size))
+		else
+			x = rand(size)
+		end
 		dt = @elapsed begin
-			foo(rand(size))
+			foo(x)
 		end
 	end
 	times_fft = [elapsed_time(Int(s), fft) for s in 1:10:200]
 	times_dft = [elapsed_time(Int(s), dft) for s in 1:10:200]
 	plot(times_dft, label="DFT - O(n*n)")
 	plot!(times_fft, label="FFT - O(n*log n)")
+end
+
+# ╔═╡ 2f24447f-398e-43ae-a69e-e33e239b1a00
+md"
+Para implementar a transformada de fourier rápida com decimação no tempo (Radix 2 FFT) observamos que a expressão da DFT pode ser reescrita da seguinte maneira:
+
+```math
+X[k] = E_k + e^{-j\frac{2\pi}{N}k} O_k 
+```
+
+```math
+X[k + \frac{N}{2}] = E_k - e^{-j\frac{2\pi}{N}k} O_k
+```
+
+Onde $E_k$ e $O_k$ são DFTs de tamanho $N/2$ relativas aos indices pares e ímpares do vetor original $x$.
+"
+
+# ╔═╡ 0175269c-25e9-43d3-8cfe-e4cae367e2a7
+function dit2fft(x)
+	N = length(x)
+
+	if N == 1
+		return x
+	else
+		odd_index = Int.(1:2:N)
+		X = Array{ComplexF64}(undef, N)
+		X[1:N÷2] = dit2fft(x[odd_index .+ 1])
+		X[N÷2+1:N] = dit2fft(x[odd_index])
+	end
+
+	for k ∈ 0:(N÷2)-1
+		p = X[k+1]
+		q = ℯ^(-𝑗*(2π/N)*k)*X[k+1 + (N÷2)]
+		X[k+1] = p + q
+		X[k+1 + (N÷2)] = p - q
+	end
+
+	return X
+end
+
+# ╔═╡ da6e3b58-727f-4afd-82a3-a80596221a09
+md"Validando mais uma vez a implementação:"
+
+# ╔═╡ 11c85bca-3a2b-457f-885a-a860e73bc59d
+begin
+	X_pad = pad_zeros(X)
+	Y₁_pad = dft_amp(X_pad, fft)
+	Y₂_pad = dft_amp(X_pad, dit2fft)
+	
+	f_pad = Fs*(0:length(X_pad)-1)/L;
+	plot(f_pad, Y₁_pad, label="FFTW")
+	plot!(f_pad, Y₂_pad, label="Radix-2 FFT")
+	title!("Amplitude da FFT - X[k]")
+	xlabel!("f (Hz)")
+	ylabel!("|X[k]|")
+end
+
+# ╔═╡ 00062d0c-b996-4b3e-a52e-86afa7c0e51e
+md"Comparando as curvas de desempenho:"
+
+# ╔═╡ 9ab655f9-602a-45ac-ae3c-e56534a6e5f6
+begin
+	times_dit2fft = [elapsed_time(Int(s), dit2fft, true) for s in 1:10:200]
+	plot(times_dft, label="DFT - O(n*n)")
+	plot!(times_fft, label="FFT - O(n*log n)")
+	plot!(times_dit2fft, label="Radix-2 FFT - O(n*log n)")
 end
 
 # ╔═╡ d19dea2c-2235-4278-b043-283eeec6e86c
@@ -254,6 +328,54 @@ md"
 
 2. Implemente o algoritmo de **raiz de 2 (Radix-2)** e de **raiz de 3 (Radix-3)**, com decimação no tempo, da **Transformada Rápida de Fourier** (FFT) para analisar o espectro frequencial do sinal da Atividade 1. Valide os resultados com uma função `fft` já implementada.
 "
+
+# ╔═╡ 5c8b1dd5-d937-406e-a40a-8a80f2777232
+x = [6, 8, 5, 4, 5, 6]
+
+# ╔═╡ cef3ac08-7aea-4e0c-89c1-628b255cb619
+begin
+	xL = length(x)
+	x_fft = dft_amp(x, fft)
+	x_dft = dft_amp(x, dft)
+	
+	xf = Fs*(0:xL-1)/xL;
+	plot(xf, x_fft, label="FFTW")
+	plot!(xf, x_dft, label="DFT")
+	title!("Amplitude da DFT - X[k] tamanho 6")
+	xlabel!("f (Hz)")
+	ylabel!("|X[k]|")
+end
+
+# ╔═╡ 396d6af5-87ce-480b-949d-c98021806607
+begin
+	x8 = pad_zeros(x)
+	x8L = length(x8)
+	x8_fft = dft_amp(x8, fft)
+	x8_dft = dft_amp(x8, dft)
+	
+	x8f = Fs*(0:x8L-1)/x8L;
+	plot(x8f, x8_fft, label="FFTW")
+	plot!(x8f, x8_dft, label="DFT")
+	title!("Amplitude da DFT - X[k] tamanho 8")
+	xlabel!("f (Hz)")
+	ylabel!("|X[k]|")
+end
+
+# ╔═╡ 21be5ff7-a5e0-4aef-8361-2e8704c5856a
+begin
+	x16 = pad_zeros(vcat(x8, [0]))
+	x32 = pad_zeros(vcat(x16, [0]))
+	x32L = length(x32)
+	x32_fft = dft_amp(x32, fft)
+	x32_dft = dft_amp(x32, dft)
+	
+	x32f = Fs*(0:x32L-1)/x32L;
+	plot(x32f, x32_fft, label="FFTW")
+	plot!(x32f, x32_dft, label="DFT")
+	title!("Amplitude da DFT - X[k] tamanho 32")
+	xlabel!("f (Hz)")
+	ylabel!("|X[k]|")
+end
 
 # ╔═╡ b57c6915-a6db-499f-a655-0598398f5227
 md"
@@ -283,7 +405,6 @@ md"
 # ╟─93d8e4ff-36b2-4b50-ba74-c7e2b2c5f8c9
 # ╠═4723b752-a967-4537-9dd0-29af9ca5d879
 # ╟─4f368f95-acca-43e6-aeed-363366a68e65
-# ╠═eeee3f09-1c1b-4a85-9dce-1bcd6f3f9814
 # ╠═ad34d021-99f1-41c5-9bba-21986944b364
 # ╟─58f41eb0-4cf3-4422-91d7-a915790baf28
 # ╠═11eb6a9e-b299-433a-8eb5-4d761c1293b1
@@ -301,6 +422,16 @@ md"
 # ╠═64a738cb-8c22-418a-b9f5-587481f88466
 # ╟─825e0b02-fde9-4e27-8153-e29e71405412
 # ╠═6c9fb943-04f7-43b9-bbff-03e1c680b697
+# ╟─2f24447f-398e-43ae-a69e-e33e239b1a00
+# ╠═0175269c-25e9-43d3-8cfe-e4cae367e2a7
+# ╟─da6e3b58-727f-4afd-82a3-a80596221a09
+# ╠═11c85bca-3a2b-457f-885a-a860e73bc59d
+# ╟─00062d0c-b996-4b3e-a52e-86afa7c0e51e
+# ╠═9ab655f9-602a-45ac-ae3c-e56534a6e5f6
 # ╟─d19dea2c-2235-4278-b043-283eeec6e86c
+# ╠═5c8b1dd5-d937-406e-a40a-8a80f2777232
+# ╠═cef3ac08-7aea-4e0c-89c1-628b255cb619
+# ╠═396d6af5-87ce-480b-949d-c98021806607
+# ╠═21be5ff7-a5e0-4aef-8361-2e8704c5856a
 # ╟─b57c6915-a6db-499f-a655-0598398f5227
 # ╟─6d481e26-c7fe-46cc-b4f7-9703d40dd3e0
