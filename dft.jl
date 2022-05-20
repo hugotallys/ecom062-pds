@@ -11,7 +11,7 @@ begin
 end
 
 # ╔═╡ 7186054e-c2f9-11ec-2494-5dc6313b4393
-using Random, Distributions, FFTW, Plots, BenchmarkTools
+using Random, Distributions, FFTW, Plots
 
 # ╔═╡ fcae40ef-c2da-445a-ad98-8ec7fd498cc3
 md"
@@ -27,7 +27,7 @@ Ativando o ambiente de desenvolvimento do projeto para importar os pacotes insta
 plotlyjs();
 
 # ╔═╡ 3957279f-e493-4b15-8304-a3db295932bc
-md"## Implemtação DFT e iDFT"
+md"## Implementação DFT e iDFT"
 
 # ╔═╡ 7f67df16-76bc-4d89-a649-01b2676ee983
 md"
@@ -111,6 +111,12 @@ end
 # ╔═╡ 4f368f95-acca-43e6-aeed-363366a68e65
 md"Em seguida, calculamos a DFT para o sinal amostrado e comparamos com a implemtação disponível na biblioteca FFTW para validar o resultado:"
 
+# ╔═╡ e88749aa-61af-422f-b37c-557ec6425fcf
+function dft_amp(X, foo)
+	Y = foo(X)
+	return 2*abs.(Y/L)
+end
+
 # ╔═╡ 58f41eb0-4cf3-4422-91d7-a915790baf28
 md"
 Para recuperar o vetor do sinal discretizado, utilizamos a transformada inversa de fourier discreta, dada por:
@@ -160,11 +166,11 @@ begin
 	index = findall(
 		function compare(value)
 			value >= 0.5 - ϵ
-		end, Y₂
+		end, dft_amp(X, dft)
 	)
 	mask = zeros(L)
 	mask[index] .= 1.
-	plot(f, Y₂ .* mask, label="DFT Filtrada")
+	plot(Fs*(0:L-1)/L, dft_amp(X, dft) .* mask, label="DFT Filtrada")
 	title!("Amplitude da DFT Filtrada - X[k]")
 	xlabel!("f (Hz)")
 	ylabel!("|X[k]|")
@@ -426,6 +432,84 @@ begin
 	ylabel!("|X[k]|")
 end
 
+# ╔═╡ 06dd278f-0a24-4439-941a-3b0bce9017db
+md"Recuperando o sinal original:"
+
+# ╔═╡ 202ba098-553d-44d9-95b5-8a9dba87a589
+begin
+	y32 = dft(x32)
+	_x32 = idft(y32)
+	
+	plot(0:length(x32)-1, x32, label="Sinal Original")
+	plot!(0:length(x32)-1, real.(_x32), label="Sinal Recuperado")
+	title!("Recuperação do Sinal - iDFT")
+	xlabel!("k")
+end
+
+# ╔═╡ 23dde659-16fd-4b44-9b71-eb7391cc2db2
+md"
+## Atividade 2 - AB1
+
+1. Considere as amostras do sinal $x[n]$ descritas no arquivo texto `xn.txt`. Considerando que uma frequência de amostragem de $1000 \ \text{Hz}$ foi utilizada para gerar esta sequência, implemente o algoritmo **FFT-Radix2** e analise o espectro frequencial deste sinal.
+
+2. Utilize um filtro ideal do tipo passa baixa e com frequência de corte $\omega_c = 18 \ \text{Hz}$ para eliminar componentes frequenciais indesejadas de $x[n]$.
+
+3. Implemente a **IFFT** para restaurar o sinal filtrado, $x_f[n]$, e compare com o sinal original.
+"
+
+# ╔═╡ 274da8e4-f28b-4752-a68c-4c1b588398ca
+md"Lendo o arquivo de texto e convertendo para representação em ponto flutuante:"
+
+# ╔═╡ 28ded944-d275-4125-af87-f75170abea96
+xn_txt = open(f->read(f, String), "./xn.txt")
+
+# ╔═╡ 4f1dd8fd-6c95-4e4c-a104-56ca651108bc
+function process_txt(txt)
+	txt = replace(txt, r"[\r\n]" => "")
+	txt = replace(txt, r" +" => " ")
+	return split(lstrip(txt), " ")
+end
+
+# ╔═╡ 42d02c4b-90e5-41d0-bcaf-faf2641ee901
+xn = parse.(Float64, process_txt(xn_txt))
+
+# ╔═╡ 7d22df08-a28d-4239-a4a6-a5a5e9e049eb
+t_xn=0:T:(length(xn)-1)*T # Vetor de tempo
+
+# ╔═╡ 4e69c551-c25f-4892-be74-f1599e888c92
+begin
+	plot(t_xn, xn, label=nothing)
+	title!("Sinal Amostrado x_n[k]")
+	xlabel!("k")
+end
+
+# ╔═╡ 7e88799e-4eec-491a-bb17-48406d7c5df4
+plot_magnitude(xn, dit2fft, "Radix 2 - FFT", 2)
+
+# ╔═╡ ec3a3895-b7ed-42cc-a924-372647a9c68e
+md"Filtrando o sinal com $\omega_c = 18 \text{Hz}$"
+
+# ╔═╡ d8a8a8f1-40c3-4399-9a73-ab376fdfa5a8
+begin
+	L_xn = length(xn)
+	f_xn = Fs*(0:L_xn-1)/L_xn
+	cut_freq = findfirst(value->value >= 18 - ϵ, f_xn)
+	mask_xn = ones(L_xn)
+	mask_xn[cut_freq:L_xn-cut_freq] .= 0.
+	plot(f_xn, dft_amp(xn, dit2fft) .* mask_xn, label="DFT Filtrada")
+	title!("Amplitude da DFT Filtrada - X[k]")
+	xlabel!("f (Hz)")
+	ylabel!("|X[k]|")
+end
+
+# ╔═╡ b5114217-a7d9-4d45-a913-7c4431e424dd
+begin
+	plot(t_xn, real.(idft(dit2fft(xn) .* mask_xn)), label="Sinal Filtrado")
+	plot!(t_xn, xn, label="Sinal Original")
+	title!("Filtragem do Sinal")
+	xlabel!("k")
+end
+
 # ╔═╡ b57c6915-a6db-499f-a655-0598398f5227
 md"
 ### Referências
@@ -453,11 +537,12 @@ md"
 # ╟─7f67df16-76bc-4d89-a649-01b2676ee983
 # ╠═6f22e054-4232-4ef7-8c5d-d5c3a11edb6e
 # ╟─a4560c78-2163-4e11-9a40-4b3779a5682c
-# ╟─5f1aea93-ea99-4228-9165-54f76a38e39f
+# ╠═5f1aea93-ea99-4228-9165-54f76a38e39f
 # ╟─6de62c41-e94d-496c-8df8-57b44f0e8ecd
 # ╟─93d8e4ff-36b2-4b50-ba74-c7e2b2c5f8c9
 # ╠═4723b752-a967-4537-9dd0-29af9ca5d879
 # ╟─4f368f95-acca-43e6-aeed-363366a68e65
+# ╠═e88749aa-61af-422f-b37c-557ec6425fcf
 # ╠═18e42268-d03e-420a-aff6-2fcbcfe4759e
 # ╠═eea859de-8c2a-4b39-b12b-01e5fe38309a
 # ╟─58f41eb0-4cf3-4422-91d7-a915790baf28
@@ -490,5 +575,18 @@ md"
 # ╠═cef3ac08-7aea-4e0c-89c1-628b255cb619
 # ╠═396d6af5-87ce-480b-949d-c98021806607
 # ╠═21be5ff7-a5e0-4aef-8361-2e8704c5856a
+# ╟─06dd278f-0a24-4439-941a-3b0bce9017db
+# ╠═202ba098-553d-44d9-95b5-8a9dba87a589
+# ╟─23dde659-16fd-4b44-9b71-eb7391cc2db2
+# ╟─274da8e4-f28b-4752-a68c-4c1b588398ca
+# ╠═28ded944-d275-4125-af87-f75170abea96
+# ╠═4f1dd8fd-6c95-4e4c-a104-56ca651108bc
+# ╠═42d02c4b-90e5-41d0-bcaf-faf2641ee901
+# ╠═7d22df08-a28d-4239-a4a6-a5a5e9e049eb
+# ╠═4e69c551-c25f-4892-be74-f1599e888c92
+# ╠═7e88799e-4eec-491a-bb17-48406d7c5df4
+# ╟─ec3a3895-b7ed-42cc-a924-372647a9c68e
+# ╠═d8a8a8f1-40c3-4399-9a73-ab376fdfa5a8
+# ╠═b5114217-a7d9-4d45-a913-7c4431e424dd
 # ╟─b57c6915-a6db-499f-a655-0598398f5227
 # ╟─6d481e26-c7fe-46cc-b4f7-9703d40dd3e0
