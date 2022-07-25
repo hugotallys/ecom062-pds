@@ -53,26 +53,74 @@ Utilizando o método da *Transformação Bilinear*, projete um filtro em tempo c
 # ╔═╡ af4570a0-68db-4e72-a799-71ea17660f8d
 md"
 **Solucão**
+
+No projeto de filtro utilizando a transformação bilinear pré-deformamos as frequências em tempo discreto para tempo contínuo. Seja $|H_c(j\Omega)|$ a resposta em magnitude do filtro de tempo contínuo, então teremos que:
+
+$$0.89125 \leq |H_c(j\Omega)| \leq 1 \ , \  0 \leq \Omega \leq \frac{2}{T_d} tg(0.2\pi/2)$$
+$$|H_c(j\Omega)| \leq 0.17783 \ , \ \frac{2}{T_d}tg(0.3\pi/2) \leq \Omega \leq \infty$$
+
+Onde, por coveniência, exolhemos $T_d=1$ (os efeitos de $T_d$ se anulam durante as transformações). Além disso, já que um filtro Butterworth de tempo contínuo tem uma resposta em magnitude monotônica, podemos requerer de forma equivalente que
+
+$$|H_c(j2tg(0.1\pi))| \geq 0.89125 \ \text{ e } \ |H_c(j2 tg(0,15π))| \leq 0.17783$$
+
+A forma da função de magnitude ao quadrado para o filtro Butterworth é:
+
+$$|Hc(j\Omega)|^2 = \frac{1}{1 + (\Omega/\Omega_c)^{2N}}$$
+
+Calculando $N$ e $\Omega_c$ com o sinal de igualdade nas equações anteriores, obtemos:
+
+$$1 + \left(\frac{2tg(0.1\pi)}{\Omega_c}\right)^{2N}= \left(\frac{1}{0.892}\right)^2$$
+
+$$1 + \left(\frac{2tg(0.15\pi)}{\Omega_c}\right)^{2N}= \left(\frac{1}{0.178}\right)^2$$
+
+Resolvendo para $N$, encontramos:
+
+$$N = \frac{log[(\left(\frac{1}{0.178}\right)^2-1)/(\left(\frac{1}{0.892}\right)^2-1)]}{2log[tg(0.15\pi)/tg(0.1\pi)]}=5.305$$
+
+Como é preciso que $N$ seja um inteiro, escolhemos $N = 6$. Substituindo este valor de $N$, obtemos $\Omega_c=0.766$.
 "
 
+# ╔═╡ e3561e42-0461-443d-bc75-0f8c6872c964
+md"Instanciando o *filtro de Butterworth* a tempo cointínuo:"
+
 # ╔═╡ 3cada855-9512-4b3a-b470-2cd41e5b733d
-Hc = signal.lti(signal.butter(6, 0.776, analog=true)...);
+Hc = signal.lti(signal.butter(6, 0.776, analog=true)...)
+
+# ╔═╡ 48db375f-41a0-4e3c-9e3d-2e335ca42816
+md"
+O que nos dá uma função de transferência em tempo contínuo aproximadamente dada por:
+
+$$H_c(s)=\frac{0.2183}{s^6+2.99s^5+4.49s^4+4.27s^3+2.70s^2+1.08s+0.21}$$
+"
+
+# ╔═╡ 5be454ab-b524-4b61-bd2a-83dbc863338e
+md"
+Em seguida utilizamos a seguinte relação da transformação bilinear para converter o filtro analógico para digital:
+
+$$s\leftarrow\frac{2}{T_d}\frac{z-1}{z+1}$$
+"
 
 # ╔═╡ 01f14805-ebb9-4088-ae5f-1b02a3748647
-H = signal.lti(signal.bilinear(Hc.num, Hc.den, 1.)...);
+H = signal.lti(signal.bilinear(Hc.num, Hc.den, 1.)...)
 
-# ╔═╡ c142dae9-c96e-4fac-9875-bcee544639d7
-begin	
+# ╔═╡ 489e5d2f-68f1-4851-b80b-10af9cff56b3
+md"
+O que nos dá (aproximadamente) a seguinte função de transferência para o filtro digital:
+
+$$H(z)= \frac{0.0007378(1 + z^{−1})^6}{(1−1.2z^{−1} + 0.7z^{−2})(1−1.0z^{−1}+0.35z^{−2})(1−0.90z^{−1} + 0.21z^{−2})}$$
+"
+
+# ╔═╡ 0c89562a-8428-41d8-a6ad-8aa09f188588
+md"Plotando a magnitude da resposta para os filtros contínuo e discreto:"
+
+# ╔═╡ ee3bab58-6344-498e-a2e5-d5c484051a01
+begin
 	wz, hz = signal.freqz(H.num, H.den)
 	ws, hs = signal.freqs(Hc.num, Hc.den)
 
 	cutIdx = findfirst(x -> x > π, ws)
-	
 	ws, hs = ws[1:cutIdx], hs[1:cutIdx]
-end;
-
-# ╔═╡ ee3bab58-6344-498e-a2e5-d5c484051a01
-begin
+	
 	plot(ws, abs.(hs), label=L"|H_c(jΩ)|",  linewidth=2)
 	plot!(wz, abs.(hz), label=L"|H(e^{jω})|", linewidth=2)
 	plot!(
@@ -85,6 +133,20 @@ begin
 		title="Magnitude FTC / FTD"
 	)
 end
+
+# ╔═╡ 40505dc3-ef7c-4c2b-abc9-997de5513f4e
+md"
+Para validar o projeto dos filtros, vamos aplicar um sinal de entrada dado por:
+
+$$y(t)=sin(2\pi t) + 0.05 \cdot n(t)$$
+
+Contaminado por um ruído de alta frequência $n \sim \mathcal{N}(0, 1)$. Note que se estamos amostrando nosso sinal a tempo contínuo numa frequência $\Omega_s = 1/T_s= 1/0.005$, entao a frequência de corte será:
+
+$$\Omega_c = 2\Omega_s tg(0.1\pi) \approx 130Hz$$
+"
+
+# ╔═╡ a4783387-c2e9-483b-aeae-a207626116c7
+Ωc = (2/0.005)*tan(0.1π)
 
 # ╔═╡ aa45e460-4721-457f-a860-6b9bbddce8ce
 begin
@@ -167,7 +229,7 @@ begin
 		xlabel="Frequência em radianos (ω)",
 		ylabel="Amplitude",
 		title="Magnitude FTC / FTD",
-		legend=:bottomright
+		legend=:outertopright
 	)
 end
 
@@ -280,6 +342,10 @@ begin
 		xlabel="Frequência em radianos (ω)",
 		ylabel="Amplitude (dB)",
 		title="Magnitude FPB - Janela de Kaiser"
+	)
+	plot!(
+		[0.5π], seriestype="vline",
+		style=:dash, color=:red,label=false
 	)
 end
 
@@ -1341,10 +1407,16 @@ version = "0.9.1+5"
 # ╠═9af3a06f-0874-42ac-a2c4-0b445feeb339
 # ╟─5a3b139a-15aa-4382-a8fd-b988f38136ee
 # ╟─af4570a0-68db-4e72-a799-71ea17660f8d
+# ╟─e3561e42-0461-443d-bc75-0f8c6872c964
 # ╠═3cada855-9512-4b3a-b470-2cd41e5b733d
+# ╟─48db375f-41a0-4e3c-9e3d-2e335ca42816
+# ╟─5be454ab-b524-4b61-bd2a-83dbc863338e
 # ╠═01f14805-ebb9-4088-ae5f-1b02a3748647
-# ╠═c142dae9-c96e-4fac-9875-bcee544639d7
+# ╟─489e5d2f-68f1-4851-b80b-10af9cff56b3
+# ╟─0c89562a-8428-41d8-a6ad-8aa09f188588
 # ╠═ee3bab58-6344-498e-a2e5-d5c484051a01
+# ╟─40505dc3-ef7c-4c2b-abc9-997de5513f4e
+# ╠═a4783387-c2e9-483b-aeae-a207626116c7
 # ╠═aa45e460-4721-457f-a860-6b9bbddce8ce
 # ╟─18eecc9f-a87c-41d6-86be-ac05c1d593ff
 # ╟─262ca89f-40b4-4345-afb0-7a244b171798
