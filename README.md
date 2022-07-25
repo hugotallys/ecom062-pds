@@ -18,3 +18,6 @@ $ julia --project=. startPluto.jl
 
 ![](./imgs/dft.png)
 ![](./imgs/filtragem.png)
+![](./imgs/butter-filter.png)
+![](./imgs/filter-signal.png)
+![](./imgs/kaiser-filter.png)
